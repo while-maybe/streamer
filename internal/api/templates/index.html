@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>My Media Server</title>
+    <style>
+        body { font-family: sans-serif; background: #222; color: #fff; padding: 20px; }
+        .video-item { background: #333; margin: 10px 0; padding: 15px; border-radius: 5px; }
+        a { color: #4facfe; text-decoration: none; font-size: 1.2em; }
+    </style>
+</head>
+<body>
+    <h1>Available</h1>
+    {{range .}}
+    <div class="video-item">
+        <a href="/stream?file={{.EncodedPath}}">🎬 {{.Name}} - {{.Category}}</a>
+    </div>
+    {{end}}
+</body>
+</html>
