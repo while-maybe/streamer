@@ -12,6 +12,11 @@ type VideoItem struct {
 }
 
 func (h *Handler) HandleWeb(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+
 	files, err := h.Media.ListFiles()
 	if err != nil {
 		http.Error(w, "could not list files", http.StatusInternalServerError)

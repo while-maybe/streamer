@@ -15,9 +15,10 @@ import (
 	"streamer/internal/discovery"
 	"streamer/internal/media"
 	"syscall"
-	"time"
 
 	"streamer/internal/config"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type App struct {
@@ -114,22 +115,32 @@ func (a *App) Run(rootCtx context.Context) error {
 
 	// setup router
 	mux := http.NewServeMux()
-	mux.HandleFunc("/stream", a.withLogging(a.api.Stream))
-	mux.HandleFunc("/direct/", a.withLogging(a.api.AdapterDirectStream))
 
-	mux.HandleFunc("/playlist.m3u", a.withLogging(a.api.HandleM3U))
+	defaultStack := []Middleware{a.withObservability, a.withLogging}
 
-	mux.HandleFunc("/description.xml", a.withLogging(a.api.HandleXML))
+	handle := func(pattern string, handler http.HandlerFunc) {
+		finalHandler := middlewareChain(http.HandlerFunc(handler), defaultStack...)
+		mux.Handle(pattern, finalHandler)
+	}
 
-	mux.HandleFunc("/content", a.withLogging(a.api.HandleSCPD))
-	mux.HandleFunc("/content/event", a.withLogging(a.api.HandleDummyEvent))
-	mux.HandleFunc("/content/control", a.withLogging(a.api.HandleDummyControl))
+	// no middlewares for metrics!
+	mux.Handle("GET /metrics", promhttp.Handler())
 
-	mux.HandleFunc("/connection", a.withLogging(a.api.HandleConnectionSCPD))
-	mux.HandleFunc("/connection/event", a.withLogging(a.api.HandleDummyEvent))
-	mux.HandleFunc("/connection/control", a.withLogging(a.api.HandleDummyControl))
+	handle("/stream", a.api.Stream)
+	handle("/direct/", a.api.AdapterDirectStream)
 
-	mux.HandleFunc("/", a.withLogging(a.api.HandleWeb))
+	handle("/playlist.m3u", a.api.HandleM3U)
+	handle("/description.xml", a.api.HandleXML)
+
+	handle("/content", a.api.HandleSCPD)
+	handle("/content/event", a.api.HandleDummyEvent)
+	handle("/content/control", a.api.HandleDummyControl)
+
+	handle("/connection", a.api.HandleConnectionSCPD)
+	handle("/connection/event", a.api.HandleDummyEvent)
+	handle("/connection/control", a.api.HandleDummyControl)
+
+	handle("/", a.api.HandleWeb)
 
 	srv := &http.Server{
 		Handler:      mux,
@@ -170,38 +181,6 @@ func (a *App) Run(rootCtx context.Context) error {
 
 	a.logger.Info("server stopped")
 	return nil
-}
-
-func (a *App) withLogging(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// notifies the shutdown monitor activity
-		if a.monitor != nil {
-			a.monitor.NotifyActivity()
-		}
-
-		start := time.Now()
-
-		wrapped := &statusRecorder{ResponseWriter: w, statusCode: http.StatusOK}
-		next(wrapped, r)
-
-		a.logger.Debug("request",
-			"method", r.Method,
-			"path", r.URL.Path,
-			"remote", r.RemoteAddr,
-			"status", wrapped.statusCode,
-			"duration_ms", time.Since(start).Milliseconds(),
-		)
-	}
-}
-
-type statusRecorder struct {
-	http.ResponseWriter
-	statusCode int
-}
-
-func (r *statusRecorder) WriteHeader(code int) {
-	r.statusCode = code
-	r.ResponseWriter.WriteHeader(code)
 }
 
 func getLocalIP() (string, error) {
