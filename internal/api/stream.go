@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"streamer/internal/observability"
 	"strings"
 )
 
@@ -67,6 +68,9 @@ func (h *Handler) Stream(w http.ResponseWriter, r *http.Request) {
 		"bytes", fileInfo.Size(),
 		"mime_type", mimeType,
 	)
+
+	observability.ActiveStreams.Inc()
+	defer observability.ActiveStreams.Dec()
 
 	// Let ServeContent handle range requests and actual streaming
 	http.ServeContent(w, r, fileInfo.Name(), fileInfo.ModTime(), file)

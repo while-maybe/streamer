@@ -1,0 +1,10 @@
+global:
+  scrape_interval: 5s     # How often to check for data (5s is fast for testing)
+  evaluation_interval: 5s # How often to calculate rules
+
+scrape_configs:
+  - job_name: 'gostream-server'
+    metrics_path: '/metrics' # The endpoint we created in Go
+    static_configs:
+      # 'host.docker.internal' is a special DNS name that lets  a Docker container talk to your Laptop's "localhost"
+      - targets: ['host.docker.internal:8081']

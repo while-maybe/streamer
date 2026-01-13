@@ -16,6 +16,8 @@ This project serves as a demonstration of robust systems programming in Go:
 *   **Network Programming:** Implements a pure UDP Multicast (SSDP) discovery layer without external dependencies, handling "ByeBye" packets and socket lifecycle to prevent resource leaks.
 *   **Systems Awareness:** Includes architecture-aware configuration validation (e.g., bitwise checks to prevent integer overflows on 32-bit vs 64-bit systems).
 *   **Zero Dependencies:** The core logic relies almost exclusively on the standard library (using `gofrs/uuid` only for ID generation).
+*   **Enterprise Observability:** Implements the Middleware Pattern to capture RED metrics (Rate, Errors, Duration) via Prometheus. Tracks business-critical state (Active Streams) using gauges, enabling real-time load monitoring.
+
 
 ## Requirements
 
@@ -41,6 +43,18 @@ By default, the server streams the current directory on port 8081.
 ./streamer [flags] [path_to_videos]
 ```
 
+## Monitoring
+A Dockerized observability stack (Prometheus + Grafana) is included to visualize runtime performance.
+code
+Bash
+
+### Start the monitoring infrastructure
+```bash
+docker-compose up -d
+```
+Metrics Endpoint: `http://localhost:8081/metrics`
+Grafana Dashboard: `http://localhost:3000` (User/Pass: admin)
+Setup: Import the dashboard definition from `observability/dashboard.json`
 ### Quick Examples
 
 **Basic:** Stream the user's video folder.

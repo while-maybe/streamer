@@ -1,0 +1,29 @@
+services:
+  # Service 1: The Collector (Prometheus)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: streamer-prometheus
+    ports:
+      - "9090:9090" # Browser access port
+    volumes:
+      # Map our local config file into the container
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    extra_hosts:
+      # This logic ensures Linux/Windows/Mac can all access 'localhost'
+      - "host.docker.internal:host-gateway"
+
+  # Service 2: The Dashboard (Grafana)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: streamer-grafana
+    ports:
+      - "3000:3000" # Browser access port
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin # Default password
+    depends_on:
+      - prometheus # Start Prometheus first
+    volumes:
+      - grafana_data:/var/lib/grafana # add persistence to grafana
+
+volumes:
+  grafana_data:
