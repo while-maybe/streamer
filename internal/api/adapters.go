@@ -6,16 +6,31 @@ import (
 	"os"
 	"streamer/internal/media"
 	"strings"
+
+	"github.com/gofrs/uuid/v5"
 )
 
 func (h *Handler) AdapterDirectStream(w http.ResponseWriter, r *http.Request) {
-	path := strings.TrimPrefix(r.URL.Path, "/direct/")
+	id := strings.TrimPrefix(r.URL.Path, "/direct/")
 
-	resource, err := h.Media.OpenResource(path)
+	uuid, err := uuid.FromString(id)
+	if err != nil {
+		h.logger.Warn("id is not the right format", "id", id)
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+
+	entry, err := h.Media.GetEntry(uuid)
+	if err != nil {
+		http.Error(w, "entry not found", http.StatusNotFound)
+		return
+	}
+
+	resource, err := h.Media.OpenResource(entry.Path)
 	if err != nil {
 		switch {
 		case errors.Is(err, media.ErrPathOutsideRoot):
-			h.logger.Warn("security alert: attempted path traversal", "path", path, "remote", r.RemoteAddr)
+			h.logger.Warn("security alert: attempted path traversal", "path", entry.Path, "remote", r.RemoteAddr)
 			http.Error(w, "forbidden", http.StatusForbidden)
 
 		case errors.Is(err, os.ErrNotExist):

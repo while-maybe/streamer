@@ -40,20 +40,6 @@ func escapeXML(s string) string {
 	return s
 }
 
-func (h *Handler) getFileSize(relPath string) int64 {
-	f, err := h.Media.OpenFile(relPath)
-	if err != nil {
-		return 0
-	}
-	defer f.Close()
-
-	info, err := f.Stat()
-	if err != nil {
-		return 0
-	}
-	return info.Size()
-}
-
 func getDLNAProfile(filename string) string {
 	ext := strings.ToLower(filepath.Ext(filename))
 

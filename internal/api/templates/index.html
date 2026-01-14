@@ -12,7 +12,7 @@
     <h1>Available</h1>
     {{range .}}
     <div class="video-item">
-        <a href="/stream?file={{.EncodedPath}}">🎬 {{.Name}} - {{.Category}}</a>
+        <a href="/stream?id={{.EncodedPath}}">🎬 {{.Name}} - {{.Category}}</a>
     </div>
     {{end}}
 </body>

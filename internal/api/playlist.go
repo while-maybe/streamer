@@ -3,15 +3,10 @@ package api
 import (
 	"fmt"
 	"net/http"
-	"net/url"
 )
 
 func (h *Handler) HandleM3U(w http.ResponseWriter, r *http.Request) {
-	mediaFiles, err := h.Media.ListFiles()
-	if err != nil {
-		http.Error(w, "could not list files", http.StatusInternalServerError)
-		return
-	}
+	entries := h.Media.Registry.List()
 
 	categoryFilter := r.URL.Query().Get("category")
 
@@ -19,21 +14,17 @@ func (h *Handler) HandleM3U(w http.ResponseWriter, r *http.Request) {
 	// m3u Header
 	fmt.Fprintln(w, "#EXTM3U")
 
-	for _, f := range mediaFiles {
+	for _, f := range entries {
 
 		// if filter has been set, skip the others
 		if categoryFilter != "" && f.Category != categoryFilter {
 			continue
 		}
 
-		safePath := url.PathEscape(f.Path)
-
-		// streamURL := fmt.Sprintf("http://%s/stream?file=%s", r.Host, safePath)
-
 		// Write the Entry to m3u
 		// #EXTINF:-1,Action - Die Hard.mp4
 		fmt.Fprintf(w, "#EXTINF:-1,%s - %s\n", f.Category, f.Name)
 		// http://.../stream?file=Action/Die Hard.mp4
-		fmt.Fprintf(w, "http://%s/stream?file=%s\n", r.Host, safePath)
+		fmt.Fprintf(w, "http://%s/stream?id=%s\n", r.Host, f.UUID.String())
 	}
 }

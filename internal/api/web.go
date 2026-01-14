@@ -2,7 +2,6 @@ package api
 
 import (
 	"net/http"
-	"net/url"
 )
 
 type VideoItem struct {
@@ -29,7 +28,7 @@ func (h *Handler) HandleWeb(w http.ResponseWriter, r *http.Request) {
 		items = append(items, VideoItem{
 			Name:        f.Name,
 			Category:    f.Category,
-			EncodedPath: url.QueryEscape(f.Path),
+			EncodedPath: f.UUID.String(),
 		})
 	}
 

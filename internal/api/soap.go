@@ -204,12 +204,13 @@ func (h *Handler) generateDIDL(files []media.Video, host string) string {
 		for j, part := range pathParts {
 			pathParts[j] = url.PathEscape(part)
 		}
-		encodedPath := strings.Join(pathParts, "/")
+		// encodedPath := strings.Join(pathParts, "/")
 
 		// Use the host from the request - this matches what Nova expects
-		streamURL := fmt.Sprintf("http://%s/direct/%s", host, encodedPath)
+		// streamURL := fmt.Sprintf("http://%s/direct/%s", host, encodedPath)
+		streamURL := fmt.Sprintf("http://%s/direct/%s", host, file.UUID.String())
 
-		fileSize := h.getFileSize(file.Path)
+		fileSize := file.Size
 		mimeType := getMimeType(file.Name)
 
 		// Try without any DLNA profile - just basic HTTP

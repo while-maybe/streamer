@@ -6,29 +6,37 @@ import (
 	"strconv"
 	"streamer/internal/observability"
 	"strings"
+
+	"github.com/gofrs/uuid/v5"
 )
 
 func (h *Handler) Stream(w http.ResponseWriter, r *http.Request) {
-	relPath := r.URL.Query().Get("file")
+	id := r.URL.Query().Get("id")
+	// relPath := r.URL.Query().Get("file")
 
-	if relPath == "" {
-		http.Error(w, "file parameter is required", http.StatusBadRequest)
+	if id == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
 		return
 	}
 
 	h.logger.Debug("stream request",
-		"file", relPath,
+		"id", id,
 		"range", r.Header.Get("Range"),
 		"user_agent", r.Header.Get("User-Agent"),
 	)
 
 	// Open the file to get info
-	file, err := h.Media.OpenFile(relPath)
+	uuid, err := uuid.FromString(id)
+	// TODO handle uuid parsing error
+	entry, err := h.Media.GetEntry(uuid)
+	// TODO handle getentry error
+	file, err := h.Media.OpenFile(entry.Path)
 	if err != nil {
-		h.logger.Error("opening file", "relpath", relPath, "err", err)
+		h.logger.Error("opening file", "uuid", id, "err", err)
 		http.Error(w, "file not found", http.StatusNotFound)
 		return
 	}
+
 	defer file.Close()
 
 	// Get file info
@@ -40,7 +48,7 @@ func (h *Handler) Stream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get mime type and DLNA profile
-	mimeType := getMimeType(relPath)
+	mimeType := getMimeType(file.Name())
 
 	// Set DLNA/UPnP headers BEFORE calling ServeContent
 	w.Header().Set("Content-Type", mimeType)
@@ -53,7 +61,7 @@ func (h *Handler) Stream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Length", strconv.FormatInt(fileInfo.Size(), 10))
 
 	if isDLNAClient(r) {
-		dlnaProfile := getDLNAProfile(relPath)
+		dlnaProfile := getDLNAProfile(file.Name())
 		// DLNA headers
 		w.Header().Set("transferMode.dlna.org", "Streaming")
 		w.Header().Set("contentFeatures.dlna.org", dlnaProfile)

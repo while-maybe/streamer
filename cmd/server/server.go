@@ -29,12 +29,12 @@ type App struct {
 }
 
 func NewApp(cfg *config.Config, logger *slog.Logger) (*App, error) {
-	// create media Manager with details from cfg
-	myMedia := &media.Manager{
-		RootPath:   cfg.Media.RootPath,
-		Mode:       cfg.Media.Mode,
-		BufferSize: cfg.Media.BufferSize,
-	}
+	// create media Manager with values from cfg
+	myMedia := media.NewManager(
+		cfg.Media.RootPath,
+		cfg.Media.BufferSize,
+		cfg.Media.Mode,
+	)
 
 	// Map main config to API config
 	apiCfg := api.Config{
@@ -108,6 +108,7 @@ func (a *App) Run(rootCtx context.Context) error {
 	serverPort, _ := strconv.Atoi(port)
 
 	a.monitor.Start(ctx)
+	a.api.Media.StartScanning(ctx, a.logger)
 
 	// discovery
 	discovery.StartSSDP(ctx, a.logger, hostIP, serverPort, a.cfg.Media.UUID)
