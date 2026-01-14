@@ -120,6 +120,8 @@ func (m *Manager) StartScanning(ctx context.Context, logger *slog.Logger) {
 	ticker := time.NewTicker(defaultTickerDuration)
 
 	go func() {
+		defer ticker.Stop()
+
 		for {
 			select {
 			case <-ctx.Done():

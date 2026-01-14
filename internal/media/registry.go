@@ -23,15 +23,17 @@ type Entry struct {
 }
 
 type Registry struct {
-	mu     sync.RWMutex
-	byUUID map[uuid.UUID]*Entry // lookup UUID -> *Entry
-	byPath map[string]uuid.UUID // lookup Path -> UUID
+	mu      sync.RWMutex
+	byUUID  map[uuid.UUID]*Entry // lookup UUID -> *Entry
+	byPath  map[string]uuid.UUID // lookup Path -> UUID
+	updates chan registryUpdate
 }
 
 func NewRegistry() *Registry {
 	return &Registry{
-		byUUID: make(map[uuid.UUID]*Entry),
-		byPath: make(map[string]uuid.UUID),
+		byUUID:  make(map[uuid.UUID]*Entry),
+		byPath:  make(map[string]uuid.UUID),
+		updates: make(chan registryUpdate, 1),
 	}
 }
 
@@ -127,54 +129,48 @@ func (r *Registry) Remove(path string) {
 	delete(r.byUUID, uuid)
 }
 
+type registryUpdate struct {
+	toAdd    []*Entry
+	toRemove []string
+}
+
 func (r *Registry) Scan(rootPath string) error {
-	foundOnDisk := make(map[string]struct{})
+
+	type fileMetadata struct {
+		path, name, category string
+		size                 int64
+	}
+
+	meta := make(map[string]fileMetadata)
 	allowedExtensions := []string{".mp4", ".m4v"}
 
 	err := fs.WalkDir(os.DirFS(rootPath), ".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			// for now skip
-			// maybe transient IO error?
-			return nil
-		}
-		if d.IsDir() {
+		if err != nil || d.IsDir() {
 			return nil
 		}
 
 		ext := strings.ToLower(filepath.Ext(path))
 		if !slices.Contains(allowedExtensions, ext) {
-			// Skip this file, it's not a format we want for now
 			return nil
 		}
 
-		// mark the file as ok
-		foundOnDisk[path] = struct{}{}
-
-		r.mu.RLock()
-		if _, ok := r.byPath[path]; ok {
-			return nil
-		}
-		r.mu.RUnlock()
-
-		// create a new entry
 		info, err := d.Info()
 		if err != nil {
 			return nil
 		}
 
-		// Calculate Category (Parent folder)
 		category := filepath.Dir(path)
 		if category == "." {
 			category = "Uncategorized"
 		}
 
-		newEntry, err := NewEntry(path, d.Name(), category, info.Size())
-		if err != nil {
-			return fmt.Errorf("scan: %w", err)
+		// Store RAW data. Don't create Entry yet.
+		meta[path] = fileMetadata{
+			path:     path,
+			name:     d.Name(),
+			category: category,
+			size:     info.Size(),
 		}
-
-		// add it to cache
-		r.Add(newEntry)
 		return nil
 	})
 
@@ -182,19 +178,57 @@ func (r *Registry) Scan(rootPath string) error {
 		return fmt.Errorf("walkdir: %w", err)
 	}
 
-	// gather entries where files are not accessible but entries still in cache
-	var pathsToDelete []string
+	// evaluate changes
+	var toRemove []string
+	var toAdd []fileMetadata
 	r.mu.RLock()
+
+	// Check for deletions
 	for path := range r.byPath {
-		if _, ok := foundOnDisk[path]; !ok {
-			pathsToDelete = append(pathsToDelete, path)
+		if _, ok := meta[path]; !ok {
+			toRemove = append(toRemove, path)
+		}
+	}
+
+	// Check for additions
+	for path, fileMeta := range meta {
+		if _, ok := r.byPath[path]; !ok {
+			toAdd = append(toAdd, fileMeta)
 		}
 	}
 	r.mu.RUnlock()
 
-	// remove them
-	for _, k := range pathsToDelete {
-		r.Remove(k)
+	// anything needs updating?
+	if len(toRemove) == 0 && len(toAdd) == 0 {
+		return nil
+	}
+
+	// make the changes
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// stuff to delete
+	for _, path := range toRemove {
+		if uuid, ok := r.byPath[path]; ok {
+			delete(r.byPath, path)
+			delete(r.byUUID, uuid)
+		}
+	}
+
+	// stuff to add
+	for _, meta := range toAdd {
+		// has someone else added it?
+		if _, ok := r.byPath[meta.path]; ok {
+			continue
+		}
+
+		entry, err := NewEntry(meta.path, meta.name, meta.category, meta.size)
+		if err != nil {
+			continue
+		}
+
+		r.byUUID[entry.UUID] = entry
+		r.byPath[entry.Path] = entry.UUID
 	}
 
 	return nil
