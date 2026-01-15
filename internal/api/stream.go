@@ -11,8 +11,8 @@ import (
 )
 
 func (h *Handler) Stream(w http.ResponseWriter, r *http.Request) {
+
 	id := r.URL.Query().Get("id")
-	// relPath := r.URL.Query().Get("file")
 
 	if id == "" {
 		http.Error(w, "id is required", http.StatusBadRequest)
@@ -25,43 +25,59 @@ func (h *Handler) Stream(w http.ResponseWriter, r *http.Request) {
 		"user_agent", r.Header.Get("User-Agent"),
 	)
 
-	// Open the file to get info
 	uuid, err := uuid.FromString(id)
-	// TODO handle uuid parsing error
+	if err != nil {
+		h.logger.Warn("uuid parsing", "uuid", id, "err", err)
+		http.Error(w, "bad id", http.StatusNotFound)
+		return
+	}
+
+	// get the media entry for the given (now validated) uuid
 	entry, err := h.Media.GetEntry(uuid)
-	// TODO handle getentry error
-	file, err := h.Media.OpenFile(entry.Path)
 	if err != nil {
-		h.logger.Error("opening file", "uuid", id, "err", err)
-		http.Error(w, "file not found", http.StatusNotFound)
+		h.logger.Debug("entry for given id", "uuid", id, "err", err)
+		http.Error(w, "couldn not match any media to given id", http.StatusNotFound)
 		return
 	}
 
-	defer file.Close()
-
-	// Get file info
-	fileInfo, err := file.Stat()
+	volume, err := h.Media.GetVolume(entry.VolumeID)
 	if err != nil {
-		h.logger.Error("file info", "err", err)
-		http.Error(w, "could not stat file", http.StatusInternalServerError)
+		h.logger.Error("volume missing for entry", "vol_id", entry.VolumeID, "entry_id", id)
+		http.Error(w, "storage volume unavailable", http.StatusServiceUnavailable)
 		return
 	}
+
+	//  IO slot is available (will use semaphore)
+	if err := volume.Limiter.TryAcquire(r.Context()); err != nil {
+		h.logger.Warn("IO limiter reached", "id", id)
+		http.Error(w, "server too busy", http.StatusServiceUnavailable)
+		return
+	}
+	defer volume.Limiter.Release()
+
+	resource, err := h.Media.OpenResource(entry)
+	if err != nil {
+		h.logger.Error("opening resource", "path", entry.Path, "err", err)
+		http.Error(w, "file access error", http.StatusInternalServerError)
+		return
+	}
+	defer resource.Close()
 
 	// Get mime type and DLNA profile
-	mimeType := getMimeType(file.Name())
+	mimeType := getMimeType(resource.Name())
 
 	// Set DLNA/UPnP headers BEFORE calling ServeContent
 	w.Header().Set("Content-Type", mimeType)
 	w.Header().Set("Accept-Ranges", "bytes")
 
 	// is not here, browser will attempt to download content instead of playing
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, fileInfo.Name()))
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, resource.Name()))
 
 	// Some clients need explicit content length
-	w.Header().Set("Content-Length", strconv.FormatInt(fileInfo.Size(), 10))
+	w.Header().Set("Content-Length", strconv.FormatInt(resource.Size(), 10))
 
 	if isDLNAClient(r) {
-		dlnaProfile := getDLNAProfile(file.Name())
+		dlnaProfile := getDLNAProfile(resource.Name())
 		// DLNA headers
 		w.Header().Set("transferMode.dlna.org", "Streaming")
 		w.Header().Set("contentFeatures.dlna.org", dlnaProfile)
@@ -72,8 +88,8 @@ func (h *Handler) Stream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.logger.Debug("serving file",
-		"name", fileInfo.Name(),
-		"bytes", fileInfo.Size(),
+		"name", resource.Name(),
+		"bytes", resource.Size(),
 		"mime_type", mimeType,
 	)
 
@@ -81,7 +97,7 @@ func (h *Handler) Stream(w http.ResponseWriter, r *http.Request) {
 	defer observability.ActiveStreams.Dec()
 
 	// Let ServeContent handle range requests and actual streaming
-	http.ServeContent(w, r, fileInfo.Name(), fileInfo.ModTime(), file)
+	http.ServeContent(w, r, resource.Name(), resource.ModTime(), resource)
 }
 
 // isDLNAClient checks if the request is from a DLNA/UPnP device

@@ -15,6 +15,7 @@ import (
 
 type Entry struct {
 	UUID     uuid.UUID
+	VolumeID string
 	Path     string
 	Name     string
 	Category string
@@ -37,8 +38,8 @@ func NewRegistry() *Registry {
 	}
 }
 
-func NewEntry(path, name, category string, size int64) (*Entry, error) {
-	if path == "" || name == "" || size == 0 {
+func NewEntry(volID, path, name, category string, size int64) (*Entry, error) {
+	if volID == "" || path == "" || name == "" || size == 0 {
 		return nil, errors.New("an entry needs a path, name and size")
 	}
 	// create a new uuid otherwise
@@ -51,6 +52,7 @@ func NewEntry(path, name, category string, size int64) (*Entry, error) {
 
 	return &Entry{
 		UUID:     id,
+		VolumeID: volID,
 		Path:     path,
 		Name:     name,
 		Category: category,
@@ -134,7 +136,7 @@ type registryUpdate struct {
 	toRemove []string
 }
 
-func (r *Registry) Scan(rootPath string) error {
+func (r *Registry) Scan(volID, rootPath string) error {
 
 	type fileMetadata struct {
 		path, name, category string
@@ -222,7 +224,7 @@ func (r *Registry) Scan(rootPath string) error {
 			continue
 		}
 
-		entry, err := NewEntry(meta.path, meta.name, meta.category, meta.size)
+		entry, err := NewEntry(volID, meta.path, meta.name, meta.category, meta.size)
 		if err != nil {
 			continue
 		}

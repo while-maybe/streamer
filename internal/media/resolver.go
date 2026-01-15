@@ -7,8 +7,8 @@ import (
 	"os"
 )
 
-func (m *Manager) OpenFile(relPath string) (*os.File, error) {
-	f, err := os.OpenInRoot(m.RootPath, relPath)
+func (m *Manager) OpenFile(rootPath, relPath string) (*os.File, error) {
+	f, err := os.OpenInRoot(rootPath, relPath)
 	if err != nil {
 		switch {
 		// os.OpenInRoot returns fs.ErrInvalid if the path escapes the root

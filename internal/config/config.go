@@ -33,11 +33,17 @@ type ShutdownTimersConfig struct {
 }
 
 type MediaConfig struct {
-	RootPath     string
 	Mode         media.ResourceMode // "direct" or "buffered"
 	BufferSize   int
 	FriendlyName string
 	UUID         string
+	Volumes      []VolumeConfig
+}
+
+type VolumeConfig struct {
+	ID    string
+	Path  string
+	MaxIO int
 }
 
 type LogConfig struct {
@@ -70,9 +76,9 @@ func DefaultConfig() *Config {
 		Media: MediaConfig{
 			Mode:         media.ModeFileBuffered,
 			BufferSize:   defaultBufferSize,
-			RootPath:     ".",
 			FriendlyName: "GoStream Server",
 			UUID:         "",
+			Volumes:      []VolumeConfig{},
 		},
 		ShutdownTimers: ShutdownTimersConfig{
 			InactiveLimit: 30 * time.Minute,
@@ -124,6 +130,10 @@ func ParseArgs(cfg *Config, args []string, stderr io.Writer) error {
 	var timeToEndStr string
 	fs.StringVar(&timeToEndStr, "shutdown.at", "", "Shutdown at specific time (format HH:MM, e.g. 23:30)")
 
+	var maxIO int
+	// TODO make this a little better - magic number here?
+	fs.IntVar(&maxIO, "media.maxIO", 10, "Max concurrent disk reads")
+
 	// parse all flags
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -158,11 +168,11 @@ func ParseArgs(cfg *Config, args []string, stderr io.Writer) error {
 	cfg.Media.FriendlyName = friendlyName
 
 	// validate media.uuid
-	uuid, err := validateUUID(cfg.Media.UUID)
+	mediaUuid, err := validateUUID(cfg.Media.UUID)
 	if err != nil {
 		return err
 	}
-	cfg.Media.UUID = uuid
+	cfg.Media.UUID = mediaUuid
 
 	// validate timeToEnd
 	timeToEnd, err := validateTimeToEnd(timeToEndStr)
@@ -171,12 +181,34 @@ func ParseArgs(cfg *Config, args []string, stderr io.Writer) error {
 	}
 	cfg.ShutdownTimers.TimeToEnd = timeToEnd
 
-	// deal with the path (positional parameter at the end)
-	if posArgs := fs.Args(); len(posArgs) > 0 {
-		cfg.Media.RootPath = posArgs[len(posArgs)-1]
+	// deal with the path (positional parameters at the end)
+	// TODO put this is in a validate paths helper
+	paths := fs.Args()
+
+	// if no path is provided
+	if len(paths) == 0 {
+		paths = []string{"."}
 	}
 
+	// BUG there is more than one path but it doesn't mean they're on different disks: if several volumes are configured, then the resulting maxIO will be given maxIO * num volumes (will cause problems!)
+	// Build VolumeConfigs
+	for _, p := range paths {
+		vol, err := NewVolumeConfig(p, maxIO)
+		if err != nil {
+			return err
+		}
+		cfg.Media.Volumes = append(cfg.Media.Volumes, vol)
+	}
 	return nil
+}
+
+func NewVolumeConfig(path string, maxIO int) (VolumeConfig, error) {
+	maxIO = max(1, maxIO)
+
+	return VolumeConfig{
+		Path:  path,
+		MaxIO: maxIO,
+	}, nil
 }
 
 func validateMode(modeStr string) (media.ResourceMode, error) {

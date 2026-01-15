@@ -26,7 +26,16 @@ func (h *Handler) AdapterDirectStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resource, err := h.Media.OpenResource(entry.Path)
+	vol, err := h.Media.GetVolume(entry.VolumeID)
+	if err == nil { // If volume found, enforce limit
+		if err := vol.Limiter.TryAcquire(r.Context()); err != nil {
+			http.Error(w, "server too busy", http.StatusServiceUnavailable)
+			return
+		}
+		defer vol.Limiter.Release()
+	}
+
+	resource, err := h.Media.OpenResource(entry)
 	if err != nil {
 		switch {
 		case errors.Is(err, media.ErrPathOutsideRoot):

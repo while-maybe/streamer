@@ -20,11 +20,17 @@ const (
 	// more modes here: S3, HTTP, etc
 )
 
+type Volume struct {
+	ID       string
+	RootPath string
+	Limiter  *IOLimiter
+}
+
 type Manager struct {
-	RootPath   string
 	BufferSize int
 	Mode       ResourceMode
 	Registry   *Registry
+	Volumes    map[string]*Volume // key means volume ID ("disk1", "disk2")
 }
 
 type Video struct {
@@ -35,13 +41,44 @@ type Video struct {
 	Size     int64
 }
 
-func NewManager(rootPath string, bufferSize int, mode ResourceMode) *Manager {
+func NewVolume(id, rootPath string, maxIO int) *Volume {
+	return &Volume{
+		ID:       id,
+		RootPath: rootPath,
+		Limiter:  NewIOLimiter(maxIO),
+	}
+}
+
+func NewManager(bufferSize int, mode ResourceMode) *Manager {
+
 	return &Manager{
-		RootPath:   rootPath,
 		BufferSize: bufferSize,
 		Mode:       mode,
 		Registry:   NewRegistry(),
+		Volumes:    make(map[string]*Volume),
 	}
+}
+
+// AddVolume creates the runtime volume and limiter
+func (m *Manager) AddVolume(id, rootPath string, maxIO int) {
+	m.Volumes[id] = &Volume{
+		ID:       id,
+		RootPath: rootPath,
+		Limiter:  NewIOLimiter(maxIO),
+	}
+}
+
+func (m *Manager) GetVolume(volumeID string) (*Volume, error) {
+	if volumeID == "" {
+		return nil, errors.New("volume id is not given")
+	}
+
+	vol, ok := m.Volumes[volumeID]
+	if !ok {
+		return nil, errors.New("cannot find the volume with that id")
+	}
+
+	return vol, nil
 }
 
 func (m *Manager) GetEntry(uuid uuid.UUID) (*Entry, error) {
@@ -68,19 +105,24 @@ func (m *Manager) ListFiles() ([]Video, error) {
 	return results, nil
 }
 
-func (m *Manager) OpenResource(path string) (Resource, error) {
+func (m *Manager) OpenResource(entry *Entry) (Resource, error) {
+	vol, ok := m.Volumes[entry.VolumeID]
+	if !ok {
+		return nil, fmt.Errorf("volume %q not found", entry.VolumeID)
+	}
+
 	switch m.Mode {
 	case ModeFileDirect:
-		return m.openDirectFile(path)
+		return m.openDirectFile(vol.RootPath, entry.Path)
 	case ModeFileBuffered:
-		return m.openBufferedFile(path)
+		return m.openBufferedFile(vol.RootPath, entry.Path)
 	default:
 		return nil, fmt.Errorf("open resource: %w (mode: %d)", ErrUnsupportedMode, m.Mode)
 	}
 }
 
-func (m *Manager) openDirectFile(path string) (*FileResource, error) {
-	file, err := m.OpenFile(path)
+func (m *Manager) openDirectFile(rootPath, path string) (*FileResource, error) {
+	file, err := m.OpenFile(rootPath, path)
 	if err != nil {
 		return nil, fmt.Errorf("open direct file: %w", err)
 	}
@@ -93,8 +135,8 @@ func (m *Manager) openDirectFile(path string) (*FileResource, error) {
 	return newFileResource(file, info), nil
 }
 
-func (m *Manager) openBufferedFile(path string) (*BufferedFileResource, error) {
-	file, err := m.OpenFile(path)
+func (m *Manager) openBufferedFile(rootPath, path string) (*BufferedFileResource, error) {
+	file, err := m.OpenFile(rootPath, path)
 	if err != nil {
 		return nil, fmt.Errorf("open buffered file: %w", err)
 	}
@@ -108,12 +150,16 @@ func (m *Manager) openBufferedFile(path string) (*BufferedFileResource, error) {
 }
 
 func (m *Manager) StartScanning(ctx context.Context, logger *slog.Logger) {
-	logger.Info("scanner starting", "path", m.RootPath)
+	for _, vol := range m.Volumes {
+		logger.Info("scanner starting", "path", vol.RootPath)
+	}
 
 	// run once before ticker ticks
-	if err := m.Registry.Scan(m.RootPath); err != nil {
-		// proper log an error here!
-		logger.Error("could not scan", "path", m.RootPath, "err", err)
+	for _, vol := range m.Volumes {
+		if err := m.Registry.Scan(vol.ID, vol.RootPath); err != nil {
+			// proper log an error here!
+			logger.Error("could not scan", "path", vol.RootPath, "err", err)
+		}
 	}
 
 	defaultTickerDuration := 5 * time.Minute
@@ -127,9 +173,11 @@ func (m *Manager) StartScanning(ctx context.Context, logger *slog.Logger) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if err := m.Registry.Scan(m.RootPath); err != nil {
-					// proper log an error here!
-					logger.Error("could not scan", "path", m.RootPath, "err", err)
+				for _, vol := range m.Volumes {
+					if err := m.Registry.Scan(vol.ID, vol.RootPath); err != nil {
+						// proper log an error here!
+						logger.Error("could not scan", "path", vol.RootPath, "err", err)
+					}
 				}
 			}
 		}
