@@ -17,7 +17,8 @@ This project serves as a demonstration of robust systems programming in Go:
 *   **Systems Awareness:** Includes architecture-aware configuration validation (e.g., bitwise checks to prevent integer overflows on 32-bit vs 64-bit systems).
 *   **Zero Dependencies:** The core logic relies almost exclusively on the standard library (using `gofrs/uuid` only for ID generation).
 *   **Enterprise Observability:** Implements the Middleware Pattern to capture RED metrics (Rate, Errors, Duration) via Prometheus. Tracks business-critical state (Active Streams) using gauges, enabling real-time load monitoring.
-
+*   **Scalable Storage Architecture:** Supports Multi-Volume mounting (e.g., streaming from multiple disks simultaneously). Each volume operates with independent I/O scheduling.
+*   **Resource Protection:** Implements a Semaphore-based I/O Limiter to prevent disk thrashing on low-power hardware (Raspberry Pi/SD Cards) by strictly capping concurrent file reads.
 
 ## Requirements
 
@@ -36,7 +37,6 @@ go build -o streamer ./cmd/server
 ```
 
 ## Usage
-
 By default, the server streams the current directory on port 8081.
 
 ```bash
@@ -45,8 +45,7 @@ By default, the server streams the current directory on port 8081.
 
 ## Monitoring
 A Dockerized observability stack (Prometheus + Grafana) is included to visualize runtime performance.
-code
-Bash
+
 
 ### Start the monitoring infrastructure
 ```bash
@@ -65,11 +64,12 @@ Setup: Import the dashboard definition from `observability/dashboard.json`
 **Production-like:** Bind to a specific LAN IP, set a custom name for the TV, allocate a 20MB read buffer, and auto-shutdown at 11 PM.
 ```bash
 ./streamer \
+  ./streamer \
   -http.addr 192.168.1.50:8081 \
   -media.friendlyName "Living Room Server" \
-  -media.bufferSize 20MB \
+  -media.maxIO 4 \
   -shutdown.at 23:00 \
-  /mnt/media/movies
+  /mnt/external_hdd/movies /mnt/sdcard/tv_shows
 ```
 
 ## Configuration
@@ -84,6 +84,7 @@ The application uses a strict configuration validation phase before startup (`in
 | `-media.uuid` | *(Random)* | Unique Device Identifier. Persist this string to maintain device history/identity on clients. |
 | `-media.mode` | `buffered` | File access mode. `direct` (OS page cache) or `buffered` (Application RAM buffer). |
 | `-media.bufferSize` | `10MB` | Read buffer size. Supports units: B, KB, MB, GB. |
+| `-media.maxIO` | `10`	| Max concurrent disk reads per volume. Lower this for SD cards/HDDs to prevent buffering. |
 
 ### Lifecycle & Shutdown
 The server monitors three distinct shutdown triggers. Whichever happens first terminates the application.
@@ -123,6 +124,8 @@ internal/
     *   The **SSDP Listener** uses a `select` loop checking `ctx.Err()` to prevent CPU spinning during shutdown.
     *   The **Shutdown Monitor** uses a "Stop-and-Drain" pattern for `time.Timer` management to prevent channel race conditions.
 3.  **Protocol Compliance:** The API layer (`internal/api`) strictly handles DLNA-specific headers (`EXT`, `transferMode.dlna.org`) and MIME types to ensure compatibility with strict clients (Samsung TV, LG WebOS, Sony as well as player apps on Roku and Amazon Fire TV sticks).
+4.  **Path Obfuscation (Security):** The API never exposes physical file paths to the client. An internal Registry maps ephemeral UUIDs to filesystem locations (/stream?id=550e...), preventing path enumeration attacks and decoupling the URL from disk structure.
+5.  **I/O Pressure Relief:** To prevent system lockups on slow media (SD cards), the Stream handler acquires a token from a per-volume semaphore before opening files. If the disk is saturated, the server returns 503 Service Unavailable rather than crashing the OS IO scheduler.
 
 ## License
 
