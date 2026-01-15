@@ -193,7 +193,8 @@ func ParseArgs(cfg *Config, args []string, stderr io.Writer) error {
 	// BUG there is more than one path but it doesn't mean they're on different disks: if several volumes are configured, then the resulting maxIO will be given maxIO * num volumes (will cause problems!)
 	// Build VolumeConfigs
 	for _, p := range paths {
-		vol, err := NewVolumeConfig(p, maxIO)
+		// TODO account for user configuration here
+		vol, err := NewVolumeConfig("", p, maxIO)
 		if err != nil {
 			return err
 		}
@@ -202,10 +203,20 @@ func ParseArgs(cfg *Config, args []string, stderr io.Writer) error {
 	return nil
 }
 
-func NewVolumeConfig(path string, maxIO int) (VolumeConfig, error) {
+func NewVolumeConfig(id, path string, maxIO int) (VolumeConfig, error) {
 	maxIO = max(1, maxIO)
 
+	// assign new uuid if no id was provided
+	if id == "" {
+		uuid, err := uuid.NewV7()
+		if err != nil {
+			return VolumeConfig{}, fmt.Errorf("generate volume uuid: %w", err)
+		}
+		id = uuid.String()
+	}
+
 	return VolumeConfig{
+		ID:    id,
 		Path:  path,
 		MaxIO: maxIO,
 	}, nil
