@@ -3,6 +3,8 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"path/filepath"
+	"strings"
 )
 
 func (h *Handler) HandleM3U(w http.ResponseWriter, r *http.Request) {
@@ -21,9 +23,10 @@ func (h *Handler) HandleM3U(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
+		displayName := strings.TrimSuffix(f.Name, filepath.Ext(f.Name))
 		// Write the Entry to m3u
 		// #EXTINF:-1,Action - Die Hard.mp4
-		fmt.Fprintf(w, "#EXTINF:-1,%s - %s\n", f.Category, f.Name)
+		fmt.Fprintf(w, "#EXTINF:-1,%s - %s\n", f.Category, displayName)
 		// http://.../stream?file=Action/Die Hard.mp4
 		fmt.Fprintf(w, "http://%s/stream?id=%s\n", r.Host, f.UUID.String())
 	}

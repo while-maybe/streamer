@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"streamer/internal/media"
 	"strings"
 )
@@ -196,19 +197,21 @@ func (h *Handler) generateDIDL(files []media.Video, host string) string {
 	items.WriteString(`xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" `)
 	items.WriteString(`xmlns:dlna="urn:schemas-dlna-org:metadata-1-0/">`)
 
-	for i, file := range files {
-		itemID := fmt.Sprintf("%d", i+1)
+	for _, file := range files {
+		// itemID := fmt.Sprintf("%d", i+1)
+		itemID := file.UUID.String()
 
 		// Use simple /direct/ path - cleaner and works better
 		pathParts := strings.Split(file.Path, "/")
 		for j, part := range pathParts {
 			pathParts[j] = url.PathEscape(part)
 		}
-		// encodedPath := strings.Join(pathParts, "/")
+
+		ext := filepath.Ext(file.Name)
+		streamURL := fmt.Sprintf("http://%s/direct/%s%s", host, file.UUID.String(), ext)
 
 		// Use the host from the request - this matches what Nova expects
 		// streamURL := fmt.Sprintf("http://%s/direct/%s", host, encodedPath)
-		streamURL := fmt.Sprintf("http://%s/direct/%s", host, file.UUID.String())
 
 		fileSize := file.Size
 		mimeType := getMimeType(file.Name)
@@ -216,12 +219,14 @@ func (h *Handler) generateDIDL(files []media.Video, host string) string {
 		// Try without any DLNA profile - just basic HTTP
 		protocolInfo := fmt.Sprintf("http-get:*:%s:*", mimeType)
 
+		displayName := strings.TrimSuffix(file.Name, ext)
+
 		items.WriteString(fmt.Sprintf(`
 	<item id="%s" parentID="0" restricted="1">
 		<dc:title>%s</dc:title>
 		<upnp:class>object.item.videoItem</upnp:class>
 		<res protocolInfo="%s" size="%d">%s</res>
-	</item>`, itemID, escapeXML(file.Name), protocolInfo, fileSize, escapeXML(streamURL)))
+	</item>`, itemID, escapeXML(displayName), protocolInfo, fileSize, escapeXML(streamURL)))
 	}
 
 	items.WriteString("\n</DIDL-Lite>")

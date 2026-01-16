@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"path/filepath"
 	"streamer/internal/media"
 	"strings"
 
@@ -11,11 +12,18 @@ import (
 )
 
 func (h *Handler) AdapterDirectStream(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimPrefix(r.URL.Path, "/direct/")
+	// receive URL in a dumb format like UUID.mp4 and remove the prefix
+	pathSegment := strings.TrimPrefix(r.URL.Path, "/direct/")
+
+	// now remove the .mp4 part, if no extension, nova video player doesn't like it
+	id := strings.TrimSuffix(pathSegment, filepath.Ext(pathSegment))
+
+	// id := strings.TrimPrefix(r.URL.Path, "/direct/")
 
 	uuid, err := uuid.FromString(id)
 	if err != nil {
-		h.logger.Warn("id is not the right format", "id", id)
+		h.logger.Warn("id is not the right format", "raw_id", pathSegment, "parsed_id", id)
+		// h.logger.Warn("id is not the right format", "id", id)
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}

@@ -2,6 +2,8 @@ package api
 
 import (
 	"net/http"
+	"path/filepath"
+	"strings"
 )
 
 type VideoItem struct {
@@ -25,8 +27,10 @@ func (h *Handler) HandleWeb(w http.ResponseWriter, r *http.Request) {
 	// prepare the data for the template
 	var items []VideoItem
 	for _, f := range files {
+		displayName := strings.TrimSuffix(f.Name, filepath.Ext(f.Name))
+
 		items = append(items, VideoItem{
-			Name:        f.Name,
+			Name:        displayName,
 			Category:    f.Category,
 			EncodedPath: f.UUID.String(),
 		})

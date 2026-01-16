@@ -48,8 +48,6 @@ func NewEntry(volID, path, name, category string, size int64) (*Entry, error) {
 		return nil, fmt.Errorf("failed to generate UUID: %w", err)
 	}
 
-	name = strings.TrimSuffix(name, filepath.Ext(name))
-
 	return &Entry{
 		UUID:     id,
 		VolumeID: volID,
