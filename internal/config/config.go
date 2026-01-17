@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"path/filepath"
 	"strconv"
 	"streamer/internal/media"
 	"strings"
@@ -242,6 +243,10 @@ func ParseArgs(cfg *Config, args []string, stderr io.Writer) error {
 		cfg.Media.Volumes = append(cfg.Media.Volumes, positionalVol)
 	}
 
+	if err := cfg.validatePaths(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -267,6 +272,27 @@ func NewVolumeConfig(id string, paths []string, maxIO int) (VolumeConfig, error)
 		Paths: paths,
 		MaxIO: maxIO,
 	}, nil
+}
+
+func (cfg *Config) validatePaths() error {
+	pathsInConfig := make(map[string]string)
+
+	for _, vol := range cfg.Media.Volumes {
+		for _, path := range vol.Paths {
+			absPath, err := filepath.Abs(path)
+
+			if err != nil {
+				return fmt.Errorf("resolve path %q: %w", path, err)
+			}
+
+			if existingVol, ok := pathsInConfig[path]; ok {
+				return fmt.Errorf("path %s is mounted on different vols (%s and %s)", path, existingVol, vol.ID)
+			}
+
+			pathsInConfig[absPath] = vol.ID
+		}
+	}
+	return nil
 }
 
 func validateMode(modeStr string) (media.ResourceMode, error) {
@@ -319,12 +345,13 @@ func validateFriendlyName(fNameStr string) (string, error) {
 // --log-level		string	(default "info")
 // --friendlyName	string	(default "GoStream Server")
 // --media.uuid string		(optional, generate if not provided)
+// --media.
 // --shutdown.inactiveLimit	time.Duration	(default: 30mins)
 // --shutdown.sleepTimer	time.Duration	(default: 0)
 // --shutdown.timeToEnd		time.Time		(default: 0)
 
 // done args:
-// only one path, last arg, done!
+// collect paths from positional arguments done!
 
 // need doing:
 // --root-path string			(default "/home/username/Videos")

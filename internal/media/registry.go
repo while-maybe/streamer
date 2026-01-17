@@ -15,7 +15,7 @@ import (
 
 type Entry struct {
 	UUID     uuid.UUID
-	VolumeID string
+	MountID  string
 	Path     string
 	Name     string
 	Category string
@@ -24,22 +24,20 @@ type Entry struct {
 }
 
 type Registry struct {
-	mu      sync.RWMutex
-	byUUID  map[uuid.UUID]*Entry // lookup UUID -> *Entry
-	byPath  map[string]uuid.UUID // lookup Path -> UUID
-	updates chan registryUpdate
+	mu     sync.RWMutex
+	byUUID map[uuid.UUID]*Entry // lookup UUID -> *Entry
+	byPath map[string]uuid.UUID // lookup Path -> UUID
 }
 
 func NewRegistry() *Registry {
 	return &Registry{
-		byUUID:  make(map[uuid.UUID]*Entry),
-		byPath:  make(map[string]uuid.UUID),
-		updates: make(chan registryUpdate, 1),
+		byUUID: make(map[uuid.UUID]*Entry),
+		byPath: make(map[string]uuid.UUID),
 	}
 }
 
-func NewEntry(volID, path, name, category string, size int64) (*Entry, error) {
-	if volID == "" || path == "" || name == "" || size == 0 {
+func NewEntry(mountID, path, name, category string, size int64) (*Entry, error) {
+	if mountID == "" || path == "" || name == "" || size == 0 {
 		return nil, errors.New("an entry needs a path, name and size")
 	}
 	// create a new uuid otherwise
@@ -50,7 +48,7 @@ func NewEntry(volID, path, name, category string, size int64) (*Entry, error) {
 
 	return &Entry{
 		UUID:     id,
-		VolumeID: volID,
+		MountID:  mountID,
 		Path:     path,
 		Name:     name,
 		Category: category,
@@ -134,7 +132,7 @@ type registryUpdate struct {
 	toRemove []string
 }
 
-func (r *Registry) Scan(volID, rootPath string) error {
+func (r *Registry) Scan(mountID, rootPath string) error {
 
 	type fileMetadata struct {
 		path, name, category string
@@ -185,7 +183,7 @@ func (r *Registry) Scan(volID, rootPath string) error {
 	for uuid, entry := range r.byUUID {
 
 		// check if on the right volume
-		if entry.VolumeID != volID {
+		if entry.MountID != mountID {
 			continue
 		}
 		if _, ok := meta[entry.Path]; !ok {
@@ -198,22 +196,24 @@ func (r *Registry) Scan(volID, rootPath string) error {
 	for path, fileMeta := range meta {
 
 		// check if the path exists
-		if existingUUID, ok := r.byPath[path]; !ok {
+		if existingUUID, ok := r.byPath[path]; ok {
 
-			// check if on the right volume
-			if r.byUUID[existingUUID].VolumeID != volID {
-				continue
+			existing := r.byUUID[existingUUID]
+
+			if existing.MountID == mountID && existing.Size != fileMeta.size {
+				existing.Size = fileMeta.size // size has changed: update
 			}
 
-			entry, err := NewEntry(volID, fileMeta.path, fileMeta.name, fileMeta.category, fileMeta.size)
-			if err != nil {
-				continue
-			}
-
-			r.byUUID[entry.UUID] = entry
-			r.byPath[entry.Path] = entry.UUID
+			continue
 		}
-	}
 
+		entry, err := NewEntry(mountID, fileMeta.path, fileMeta.name, fileMeta.category, fileMeta.size)
+		if err != nil {
+			continue
+		}
+
+		r.byUUID[entry.UUID] = entry
+		r.byPath[entry.Path] = entry.UUID
+	}
 	return nil
 }

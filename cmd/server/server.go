@@ -39,10 +39,10 @@ func NewApp(cfg *config.Config, logger *slog.Logger) (*App, error) {
 		ioLimiter := media.NewIOLimiter(volGroup.MaxIO)
 
 		for i, rootPath := range volGroup.Paths {
-			volumeID := fmt.Sprintf("%s_%d", volGroup.ID, i)
-			myMedia.AddVolume(volumeID, rootPath, ioLimiter)
+			mountID := fmt.Sprintf("%s_%d", volGroup.ID, i)
+			myMedia.AddMount(mountID, rootPath, ioLimiter)
 
-			logger.Info("volume mounted", "id", volumeID, "path", rootPath, "group_id", volGroup.ID, "max_io", volGroup.MaxIO)
+			logger.Info("volume mounted", "id", mountID, "path", rootPath, "group_id", volGroup.ID, "max_io", volGroup.MaxIO)
 		}
 	}
 

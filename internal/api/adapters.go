@@ -34,13 +34,13 @@ func (h *Handler) AdapterDirectStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vol, err := h.Media.GetVolume(entry.VolumeID)
+	mount, err := h.Media.GetMount(entry.MountID)
 	if err == nil { // If volume found, enforce limit
-		if err := vol.Limiter.TryAcquire(r.Context()); err != nil {
+		if err := mount.Limiter.TryAcquire(r.Context()); err != nil {
 			http.Error(w, "server too busy", http.StatusServiceUnavailable)
 			return
 		}
-		defer vol.Limiter.Release()
+		defer mount.Limiter.Release()
 	}
 
 	resource, err := h.Media.OpenResource(entry)

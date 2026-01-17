@@ -20,7 +20,8 @@ const (
 	// more modes here: S3, HTTP, etc
 )
 
-type Volume struct {
+// MountPoint represents a Mount Point in a media manager (runtime) context (a specific root folder we need to scan and capture)
+type MountPoint struct {
 	ID       string
 	RootPath string
 	Limiter  *IOLimiter
@@ -30,7 +31,7 @@ type Manager struct {
 	BufferSize int
 	Mode       ResourceMode
 	Registry   *Registry
-	Volumes    map[string]*Volume // key means volume ID ("disk1", "disk2")
+	Volumes    map[string]*MountPoint // key means volume ID ("vol1", "vol2")
 }
 
 type Video struct {
@@ -41,8 +42,8 @@ type Video struct {
 	Size     int64
 }
 
-func NewVolume(id, rootPath string, maxIO int) *Volume {
-	return &Volume{
+func NewMount(id, rootPath string, maxIO int) *MountPoint {
+	return &MountPoint{
 		ID:       id,
 		RootPath: rootPath,
 		Limiter:  NewIOLimiter(maxIO),
@@ -54,20 +55,20 @@ func NewManager(bufferSize int, mode ResourceMode) *Manager {
 		BufferSize: bufferSize,
 		Mode:       mode,
 		Registry:   NewRegistry(),
-		Volumes:    make(map[string]*Volume),
+		Volumes:    make(map[string]*MountPoint),
 	}
 }
 
 // AddVolume creates the runtime volume and limiter
-func (m *Manager) AddVolume(id, rootPath string, limiter *IOLimiter) {
-	m.Volumes[id] = &Volume{
+func (m *Manager) AddMount(id, rootPath string, limiter *IOLimiter) {
+	m.Volumes[id] = &MountPoint{
 		ID:       id,
 		RootPath: rootPath,
 		Limiter:  limiter,
 	}
 }
 
-func (m *Manager) GetVolume(volumeID string) (*Volume, error) {
+func (m *Manager) GetMount(volumeID string) (*MountPoint, error) {
 	if volumeID == "" {
 		return nil, errors.New("volume id is not given")
 	}
@@ -105,9 +106,9 @@ func (m *Manager) ListFiles() ([]Video, error) {
 }
 
 func (m *Manager) OpenResource(entry *Entry) (Resource, error) {
-	vol, ok := m.Volumes[entry.VolumeID]
+	vol, ok := m.Volumes[entry.MountID]
 	if !ok {
-		return nil, fmt.Errorf("volume %q not found", entry.VolumeID)
+		return nil, fmt.Errorf("volume %q not found", entry.MountID)
 	}
 
 	switch m.Mode {
@@ -149,22 +150,21 @@ func (m *Manager) openBufferedFile(rootPath, path string) (*BufferedFileResource
 }
 
 func (m *Manager) StartScanning(ctx context.Context, logger *slog.Logger) {
-	for _, vol := range m.Volumes {
-		logger.Info("scanner starting", "path", vol.RootPath)
-	}
-
-	// run once before ticker ticks
-	for _, vol := range m.Volumes {
-		if err := m.Registry.Scan(vol.ID, vol.RootPath); err != nil {
-			// proper log an error here!
-			logger.Error("could not scan", "path", vol.RootPath, "err", err)
+	scanAll := func() {
+		// Iterate over all logical volumes
+		for _, vol := range m.Volumes {
+			if err := m.Registry.Scan(vol.ID, vol.RootPath); err != nil {
+				logger.Error("scan failed", "vol_id", vol.ID, "path", vol.RootPath, "err", err)
+			}
 		}
 	}
 
-	defaultTickerDuration := 5 * time.Minute
-	ticker := time.NewTicker(defaultTickerDuration)
-
 	go func() {
+		logger.Info("background scanner started")
+		scanAll()
+
+		defaultTickerDuration := 5 * time.Minute
+		ticker := time.NewTicker(defaultTickerDuration)
 		defer ticker.Stop()
 
 		for {
@@ -172,12 +172,7 @@ func (m *Manager) StartScanning(ctx context.Context, logger *slog.Logger) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				for _, vol := range m.Volumes {
-					if err := m.Registry.Scan(vol.ID, vol.RootPath); err != nil {
-						// proper log an error here!
-						logger.Error("could not scan", "path", vol.RootPath, "err", err)
-					}
-				}
+				scanAll()
 			}
 		}
 	}()

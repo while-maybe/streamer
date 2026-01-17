@@ -40,20 +40,20 @@ func (h *Handler) Stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	volume, err := h.Media.GetVolume(entry.VolumeID)
+	mount, err := h.Media.GetMount(entry.MountID)
 	if err != nil {
-		h.logger.Error("volume missing for entry", "vol_id", entry.VolumeID, "entry_id", id)
+		h.logger.Error("volume missing for entry", "vol_id", entry.MountID, "entry_id", id)
 		http.Error(w, "storage volume unavailable", http.StatusServiceUnavailable)
 		return
 	}
 
 	//  IO slot is available (will use semaphore)
-	if err := volume.Limiter.TryAcquire(r.Context()); err != nil {
+	if err := mount.Limiter.TryAcquire(r.Context()); err != nil {
 		h.logger.Warn("IO limiter reached", "id", id)
 		http.Error(w, "server too busy", http.StatusServiceUnavailable)
 		return
 	}
-	defer volume.Limiter.Release()
+	defer mount.Limiter.Release()
 
 	resource, err := h.Media.OpenResource(entry)
 	if err != nil {
