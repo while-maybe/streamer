@@ -178,57 +178,41 @@ func (r *Registry) Scan(volID, rootPath string) error {
 		return fmt.Errorf("walkdir: %w", err)
 	}
 
-	// evaluate changes
-	var toRemove []string
-	var toAdd []fileMetadata
-	r.mu.RLock()
-
-	// Check for deletions
-	for path := range r.byPath {
-		if _, ok := meta[path]; !ok {
-			toRemove = append(toRemove, path)
-		}
-	}
-
-	// Check for additions
-	for path, fileMeta := range meta {
-		if _, ok := r.byPath[path]; !ok {
-			toAdd = append(toAdd, fileMeta)
-		}
-	}
-	r.mu.RUnlock()
-
-	// anything needs updating?
-	if len(toRemove) == 0 && len(toAdd) == 0 {
-		return nil
-	}
-
-	// make the changes
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// stuff to delete
-	for _, path := range toRemove {
-		if uuid, ok := r.byPath[path]; ok {
-			delete(r.byPath, path)
+	// Check for deletions
+	for uuid, entry := range r.byUUID {
+
+		// check if on the right volume
+		if entry.VolumeID != volID {
+			continue
+		}
+		if _, ok := meta[entry.Path]; !ok {
+			delete(r.byPath, entry.Path)
 			delete(r.byUUID, uuid)
 		}
 	}
 
-	// stuff to add
-	for _, meta := range toAdd {
-		// has someone else added it?
-		if _, ok := r.byPath[meta.path]; ok {
-			continue
-		}
+	// Check for additions / updates
+	for path, fileMeta := range meta {
 
-		entry, err := NewEntry(volID, meta.path, meta.name, meta.category, meta.size)
-		if err != nil {
-			continue
-		}
+		// check if the path exists
+		if existingUUID, ok := r.byPath[path]; !ok {
 
-		r.byUUID[entry.UUID] = entry
-		r.byPath[entry.Path] = entry.UUID
+			// check if on the right volume
+			if r.byUUID[existingUUID].VolumeID != volID {
+				continue
+			}
+
+			entry, err := NewEntry(volID, fileMeta.path, fileMeta.name, fileMeta.category, fileMeta.size)
+			if err != nil {
+				continue
+			}
+
+			r.byUUID[entry.UUID] = entry
+			r.byPath[entry.Path] = entry.UUID
+		}
 	}
 
 	return nil
