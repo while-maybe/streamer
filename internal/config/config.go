@@ -42,8 +42,8 @@ type MediaConfig struct {
 
 type VolumeConfig struct {
 	ID    string
-	Path  string
 	MaxIO int
+	Paths []string
 }
 
 type LogConfig struct {
@@ -55,6 +55,43 @@ type Config struct {
 	ShutdownTimers ShutdownTimersConfig
 	Media          MediaConfig
 	Logger         LogConfig
+}
+
+type mountFlag []VolumeConfig
+
+func (m *mountFlag) String() string {
+	return "Mount definition: ID:Limit:Path1,Path2,..."
+}
+
+func (m *mountFlag) Set(value string) error {
+	// Expected: "disk1:10:/mnt/a,/mnt/b,..."
+
+	parts := strings.Split(value, ":")
+	if len(parts) != 3 {
+		return fmt.Errorf("invalid format, expected 'id:limit:path,path'")
+	}
+
+	id := parts[0]
+	limit, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return fmt.Errorf("invalid limit: %w", err)
+	}
+
+	rawPaths := strings.SplitSeq(parts[2], ",")
+	cleanPaths := []string{}
+	for p := range rawPaths {
+		if trimmedPath := strings.TrimSpace(p); trimmedPath != "" {
+			cleanPaths = append(cleanPaths, trimmedPath)
+		}
+	}
+
+	*m = append(*m, VolumeConfig{
+		ID:    id,
+		MaxIO: limit,
+		Paths: cleanPaths,
+	})
+
+	return nil
 }
 
 const (
@@ -134,6 +171,9 @@ func ParseArgs(cfg *Config, args []string, stderr io.Writer) error {
 	// TODO make this a little better - magic number here?
 	fs.IntVar(&maxIO, "media.maxIO", 10, "Max concurrent disk reads")
 
+	var mounts mountFlag
+	fs.Var(&mounts, "media.mount", "Mount grouped volumes: ID:Limit:Path1,Path2,...")
+
 	// parse all flags
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -181,29 +221,36 @@ func ParseArgs(cfg *Config, args []string, stderr io.Writer) error {
 	}
 	cfg.ShutdownTimers.TimeToEnd = timeToEnd
 
-	// deal with the path (positional parameters at the end)
-	// TODO put this is in a validate paths helper
+	// parse the mounts
+	if len(mounts) > 0 {
+		cfg.Media.Volumes = mounts
+	}
+
 	paths := fs.Args()
 
-	// if no path is provided
-	if len(paths) == 0 {
+	// no mounts, no positional args, path becomes current folder
+	if len(paths) == 0 && len(mounts) == 0 {
 		paths = []string{"."}
 	}
 
-	// BUG there is more than one path but it doesn't mean they're on different disks: if several volumes are configured, then the resulting maxIO will be given maxIO * num volumes (will cause problems!)
-	// Build VolumeConfigs
-	for _, p := range paths {
-		// TODO account for user configuration here
-		vol, err := NewVolumeConfig("", p, maxIO)
+	// if there are any positional paths create a vol with them and append
+	if len(paths) > 0 {
+		positionalVol, err := NewVolumeConfig("", paths, maxIO)
 		if err != nil {
 			return err
 		}
-		cfg.Media.Volumes = append(cfg.Media.Volumes, vol)
+		cfg.Media.Volumes = append(cfg.Media.Volumes, positionalVol)
 	}
+
 	return nil
 }
 
-func NewVolumeConfig(id, path string, maxIO int) (VolumeConfig, error) {
+func NewVolumeConfig(id string, paths []string, maxIO int) (VolumeConfig, error) {
+	// Strict Validation: no empty paths list
+	if len(paths) == 0 {
+		return VolumeConfig{}, fmt.Errorf("volume must have at least one path")
+	}
+
 	maxIO = max(1, maxIO)
 
 	// assign new uuid if no id was provided
@@ -217,7 +264,7 @@ func NewVolumeConfig(id, path string, maxIO int) (VolumeConfig, error) {
 
 	return VolumeConfig{
 		ID:    id,
-		Path:  path,
+		Paths: paths,
 		MaxIO: maxIO,
 	}, nil
 }

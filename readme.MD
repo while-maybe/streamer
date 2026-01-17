@@ -18,7 +18,7 @@ This project serves as a demonstration of robust systems programming in Go:
 *   **Zero Dependencies:** The core logic relies almost exclusively on the standard library (using `gofrs/uuid` only for ID generation).
 *   **Enterprise Observability:** Implements the Middleware Pattern to capture RED metrics (Rate, Errors, Duration) via Prometheus. Tracks business-critical state (Active Streams) using gauges, enabling real-time load monitoring.
 *   **Scalable Storage Architecture:** Supports Multi-Volume mounting (e.g., streaming from multiple disks simultaneously). Each volume operates with independent I/O scheduling.
-*   **Resource Protection:** Implements a Semaphore-based I/O Limiter to prevent disk thrashing on low-power hardware (Raspberry Pi/SD Cards) by strictly capping concurrent file reads.
+*   **Adaptive Resource Protection:** Implements a per-volume Semaphore-based I/O Limiter: prevents disk thrashing on low-power/low-speed volumes (like SD Cards) by strictly capping concurrent file reads, while simultaneously allowing higher concurrency limits on faster drives (SSDs).
 
 ## Requirements
 
@@ -61,15 +61,15 @@ Setup: Import the dashboard definition from `observability/dashboard.json`
 ./streamer /home/user/Videos
 ```
 
-**Production-like:** Bind to a specific LAN IP, set a custom name for the TV, allocate a 20MB read buffer, and auto-shutdown at 11 PM.
+**Production-like:** Bind to a specific LAN IP, auto-shutdown at 11 PM, and mount multiple disks with different performance profiles (Fast SSD vs Slow SD Card).
 ```bash
 ./streamer \
-  ./streamer \
   -http.addr 192.168.1.50:8081 \
   -media.friendlyName "Living Room Server" \
-  -media.maxIO 4 \
   -shutdown.at 23:00 \
-  /mnt/external_hdd/movies /mnt/sdcard/tv_shows
+  -mount disk1:10:/mnt/ssd/movies,/mnt/ssd/tv \
+  -mount disk2:3:/mnt/sdcard/cartoons,/mnt/sdcard/wildlife \
+  /mnt/downloads
 ```
 
 ## Configuration
@@ -84,7 +84,9 @@ The application uses a strict configuration validation phase before startup (`in
 | `-media.uuid` | *(Random)* | Unique Device Identifier. Persist this string to maintain device history/identity on clients. |
 | `-media.mode` | `buffered` | File access mode. `direct` (OS page cache) or `buffered` (Application RAM buffer). |
 | `-media.bufferSize` | `10MB` | Read buffer size. Supports units: B, KB, MB, GB. |
-| `-media.maxIO` | `10`	| Max concurrent disk reads per volume. Lower this for SD cards/HDDs to prevent buffering. |
+| `-media.mount` | `(None)` | Define a volume group. Format: ID:Limit:Path1,Path2. Can be repeated for multiple disks. |
+| `-media.maxIO` | `10`	| Max concurrent disk reads for positional arguments (paths added without --mount). |
+
 
 ### Lifecycle & Shutdown
 The server monitors three distinct shutdown triggers. Whichever happens first terminates the application.
@@ -125,7 +127,7 @@ internal/
     *   The **Shutdown Monitor** uses a "Stop-and-Drain" pattern for `time.Timer` management to prevent channel race conditions.
 3.  **Protocol Compliance:** The API layer (`internal/api`) strictly handles DLNA-specific headers (`EXT`, `transferMode.dlna.org`) and MIME types to ensure compatibility with strict clients (Samsung TV, LG WebOS, Sony as well as player apps on Roku and Amazon Fire TV sticks).
 4.  **Path Obfuscation (Security):** The API never exposes physical file paths to the client. An internal Registry maps ephemeral UUIDs to filesystem locations (/stream?id=550e...), preventing path enumeration attacks and decoupling the URL from disk structure.
-5.  **I/O Pressure Relief:** To prevent system lockups on slow media (SD cards), the Stream handler acquires a token from a per-volume semaphore before opening files. If the disk is saturated, the server returns 503 Service Unavailable rather than crashing the OS IO scheduler.
+5.  **I/O Pressure Relief:** To prevent slower media physical disk thrashing and system lockups (and buffering on clients), the Stream handler acquires a token from a per-volume semaphore before opening files. If the specific volume’s IO limit is reached, the server returns 503 Service Unavailable rather than saturating the OS I/O scheduler.
 
 ## License
 

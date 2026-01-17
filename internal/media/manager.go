@@ -50,7 +50,6 @@ func NewVolume(id, rootPath string, maxIO int) *Volume {
 }
 
 func NewManager(bufferSize int, mode ResourceMode) *Manager {
-
 	return &Manager{
 		BufferSize: bufferSize,
 		Mode:       mode,
@@ -60,11 +59,11 @@ func NewManager(bufferSize int, mode ResourceMode) *Manager {
 }
 
 // AddVolume creates the runtime volume and limiter
-func (m *Manager) AddVolume(id, rootPath string, maxIO int) {
+func (m *Manager) AddVolume(id, rootPath string, limiter *IOLimiter) {
 	m.Volumes[id] = &Volume{
 		ID:       id,
 		RootPath: rootPath,
-		Limiter:  NewIOLimiter(maxIO),
+		Limiter:  limiter,
 	}
 }
 

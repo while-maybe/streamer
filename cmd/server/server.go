@@ -35,9 +35,15 @@ func NewApp(cfg *config.Config, logger *slog.Logger) (*App, error) {
 		cfg.Media.Mode,
 	)
 
-	for _, volCfg := range cfg.Media.Volumes {
-		myMedia.AddVolume(volCfg.ID, volCfg.Path, volCfg.MaxIO)
-		logger.Info("volume added", "id", volCfg.ID, "path", volCfg.Path, "max_io", volCfg.MaxIO)
+	for _, volGroup := range cfg.Media.Volumes {
+		ioLimiter := media.NewIOLimiter(volGroup.MaxIO)
+
+		for i, rootPath := range volGroup.Paths {
+			volumeID := fmt.Sprintf("%s_%d", volGroup.ID, i)
+			myMedia.AddVolume(volumeID, rootPath, ioLimiter)
+
+			logger.Info("volume mounted", "id", volumeID, "path", rootPath, "group_id", volGroup.ID, "max_io", volGroup.MaxIO)
+		}
 	}
 
 	// Map main config to API config
