@@ -23,8 +23,9 @@ type HttpTimeoutsConfig struct {
 }
 
 type HTTPConfig struct {
-	Addr     string
-	Timeouts HttpTimeoutsConfig
+	Addr         string
+	Timeouts     HttpTimeoutsConfig
+	TrustedProxy bool
 }
 
 type ShutdownTimersConfig struct {
@@ -110,6 +111,7 @@ func DefaultConfig() *Config {
 				Write:    1 * time.Hour,
 				Shutdown: 15 * time.Second,
 			},
+			TrustedProxy: false,
 		},
 		Media: MediaConfig{
 			Mode:         media.ModeFileBuffered,
@@ -174,6 +176,8 @@ func ParseArgs(cfg *Config, args []string, stderr io.Writer) error {
 
 	var mounts mountFlag
 	fs.Var(&mounts, "media.mount", "Mount grouped volumes: ID:Limit:Path1,Path2,...")
+
+	fs.BoolVar(&cfg.HTTP.TrustedProxy, "http.trustedProxy", false, "Trust X-Forwarded-For headers (use only behind a reverse proxy)")
 
 	// parse all flags
 	if err := fs.Parse(args); err != nil {

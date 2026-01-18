@@ -14,6 +14,7 @@ import (
 	"streamer/internal/api"
 	"streamer/internal/discovery"
 	"streamer/internal/media"
+	"streamer/internal/middleware"
 	"syscall"
 
 	"streamer/internal/config"
@@ -127,10 +128,18 @@ func (a *App) Run(rootCtx context.Context) error {
 	// setup router
 	mux := http.NewServeMux()
 
-	defaultStack := []Middleware{a.withObservability, a.withLogging}
+	// Create the limiter (e.g., 20 req/sec, burst of 50)
+	// TODO fix magicNumbers
+	limiter := middleware.NewIPRateLimiter(ctx, 20, 50, a.cfg.HTTP.TrustedProxy)
+
+	defaultStack := []middleware.Middleware{
+		middleware.WithObservability(),
+		limiter.Middleware,
+		middleware.WithLogging(a.logger, a.monitor),
+	}
 
 	handle := func(pattern string, handler http.HandlerFunc) {
-		finalHandler := middlewareChain(http.HandlerFunc(handler), defaultStack...)
+		finalHandler := middleware.Chain(http.HandlerFunc(handler), defaultStack...)
 		mux.Handle(pattern, finalHandler)
 	}
 

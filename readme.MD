@@ -19,6 +19,7 @@ This project serves as a demonstration of robust systems programming in Go:
 *   **Enterprise Observability:** Implements the Middleware Pattern to capture RED metrics (Rate, Errors, Duration) via Prometheus. Tracks business-critical state (Active Streams) using gauges, enabling real-time load monitoring.
 *   **Scalable Storage Architecture:** Supports Multi-Volume mounting (e.g., streaming from multiple disks simultaneously). Each volume operates with independent I/O scheduling.
 *   **Adaptive Resource Protection:** Implements a per-volume Semaphore-based I/O Limiter: prevents disk thrashing on low-power/low-speed volumes (like SD Cards) by strictly capping concurrent file reads, while simultaneously allowing higher concurrency limits on faster drives (SSDs).
+*   **Traffic Control:** Implements a Per-IP Token Bucket Rate Limiter to prevent abuse. It features automatic memory cleanup for idle clients and intelligent IP resolution (handling `X-Forwarded-For` when behind trusted proxies).
 
 ## Requirements
 
@@ -80,6 +81,7 @@ The application uses a strict configuration validation phase before startup (`in
 | Flag | Default | Description |
 | :--- | :--- | :--- |
 | `-http.addr` | `:8081` | TCP address to listen on. Use `IP:PORT` to bind to specific interface. |
+| `-http.trustedProxy` |	`false`	| Trust X-Forwarded-For and X-Real-IP headers. Enable this ONLY if running behind a reverse proxy (Nginx, AWS ALB). |
 | `-media.friendlyName` | `GoStream Server` | Name displayed on client devices (TVs). Max 64 chars. |
 | `-media.uuid` | *(Random)* | Unique Device Identifier. Persist this string to maintain device history/identity on clients. |
 | `-media.mode` | `buffered` | File access mode. `direct` (OS page cache) or `buffered` (Application RAM buffer). |
@@ -113,6 +115,7 @@ cmd/server/
 
 internal/
 ├── config/         # Configuration logic. Strongly typed parsing, validation, and architecture checks.
+├── middleware/     # HTTP Interceptors. Handles Logging, Metrics, and Rate Limiting.
 ├── api/            # HTTP Layer. Handles Routing, Templates, and SOAP/XML responses.
 │   └── templates/  # Embedded XML templates for UPnP services (SCPD, Device Description).
 ├── media/          # Domain Layer. Filesystem abstraction, buffering logic, and security boundaries.
@@ -128,6 +131,7 @@ internal/
 3.  **Protocol Compliance:** The API layer (`internal/api`) strictly handles DLNA-specific headers (`EXT`, `transferMode.dlna.org`) and MIME types to ensure compatibility with strict clients (Samsung TV, LG WebOS, Sony as well as player apps on Roku and Amazon Fire TV sticks).
 4.  **Path Obfuscation (Security):** The API never exposes physical file paths to the client. An internal Registry maps ephemeral UUIDs to filesystem locations (/stream?id=550e...), preventing path enumeration attacks and decoupling the URL from disk structure.
 5.  **I/O Pressure Relief:** To prevent slower media physical disk thrashing and system lockups (and buffering on clients), the Stream handler acquires a token from a per-volume semaphore before opening files. If the specific volume’s IO limit is reached, the server returns 503 Service Unavailable rather than saturating the OS I/O scheduler.
+6.  **Abuse Prevention:** To protect the server from flooding, a Token Bucket rate limiter restricts requests per IP address. It calculates limits dynamically based on the request source (direct IP vs. Proxy headers) and provides standard `Retry-After` headers for polite clients.
 
 ## License
 
